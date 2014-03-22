@@ -5,6 +5,9 @@ var LINEBREAK = "/\n";
 var NOTERMREGEX = /\b(an?|the|i)$/;
 
 var fs = require('fs');
+var restclient = require('node-restclient');
+var Twit = require('twit');
+var express = require('express');
 
 var lines = [], files;
 try {
@@ -123,8 +126,80 @@ var make_title = function (min_length) {
     return title.join(' ');
 };
 
-var m = make_title(100);
-console.log(m);
-setTimeout(function() {
-  process.exit(0);
-}, 100);
+// If deployed to Nodejitsu, it requires an application to respond to HTTP requests
+// If you're running locally or on Openshift you don't need this, or express at all.
+app.get('/', function(req, res){
+    res.send("<h1>Recent retweets</h1>" + ((recent_retweets && recent_retweets.length) ? recent_retweets.join("<br>\n") : "No retweets"));
+});
+try {
+  app.listen(
+    process.env.OPENSHIFT_NODEJS_PORT || process.env.OPENSHIFT_INTERNAL_PORT || 8080,
+    process.env.OPENSHIFT_NODEJS_IP ||
+                         process.env.OPENSHIFT_INTERNAL_IP);
+} catch(e) {
+  console.error(e);
+  //continue app. just forget about serving web
+}
+// insert your twitter app info here
+var T = new Twit({
+  consumer_key:     consumer_key, 
+  consumer_secret:  consumer_secret,
+  access_token:     access_token,
+  access_token_secret: access_token_secret
+});
+
+function postNewTitle() {
+
+    T.post('statuses/update', { status: make_title(120) }, function(err, reply) {
+      if(err) console.error("error: " + err);
+      console.log("reply: " + reply);
+    });
+}
+
+var last_rt = 1;
+function favRTs () {
+  recent_retweets = recent_retweets.length > 100 ? recent_retweets.slice(0, 100) : recent_retweets;
+  T.get('statuses/retweets_of_me', { since_id : last_rt }, function (e,r) {
+    e && console.error(e);
+    r.forEach(function(tweet,i) {
+      setTimeout(function() {
+    last_rt = Math.max(last_rt, tweet.id) + 1;
+    T.get("statuses/retweets/"+tweet.id_str,{}, function(e, rt) {
+        e && console.error("Error when getting retweets:", e);
+        var sns = rt.map(function(t) { return "@" + t.user.screen_name }).join(", ");
+        recent_retweets.unshift(tweet.text + " [Retweeted by " + (sns || "unknown") + "]");
+    });
+    if(!tweet.favorited) {
+        T.post('favorites/create.json?id='+tweet.id_str,{},function(e){
+      e && console.error("Error creating favorite", e);
+        });
+    }
+      }, Math.floor(i / 15) * 15*60000); //Only allowed to get 15 retweet lists every 15 minutes
+    });
+    console.log('harvested some RTs'); 
+  });
+}
+
+// every 2 minutes, make and tweet a metaphor
+// wrapped in a try/catch in case Twitter is unresponsive, don't really care about error
+// handling. it just won't tweet.
+postNewTitle();
+setInterval(function() {
+  try {
+    postNewTitle();
+  }
+ catch (e) {
+    console.log(e);
+  }
+},120000);
+
+// every 5 hours, check for people who have RTed a metaphor, and favorite that metaphor
+setInterval(function() {
+  try {
+    favRTs();
+  }
+ catch (e) {
+    console.log(e);
+  }
+},60000*60*5);
+
