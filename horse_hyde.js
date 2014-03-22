@@ -8,6 +8,7 @@ var fs = require('fs');
 var restclient = require('node-restclient');
 var Twit = require('twit');
 var express = require('express');
+var app = express();
 
 var lines = [], files;
 try {
