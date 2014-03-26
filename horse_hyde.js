@@ -2,7 +2,8 @@ var startwords;
 var wordstats = {};
 var words, lastword; // these are used in the for loop below
 var LINEBREAK = "/\n";
-var NOTERMREGEX = /\b(an?|the|i)$/;
+var NOTERM = ['a', 'an', 'the', 'i', 'that', 'of', 'and', 'or', 
+              'my', 'your', 'its', "it's", 'is', 'to'];
 
 var fs = require('fs');
 var restclient = require('node-restclient');
@@ -88,7 +89,7 @@ var make_title = function (min_length) {
     var word = [choice(startwords)];
     var title = word.slice(0);
     var next_words;
-    while (title.join(' ').length < min_length || NOTERMREGEX.test(word.join(" "))) {
+    while (title.join(' ').length < min_length || ~NOTERM.indexOf(word[word.length-1].toLowerCase())) {
         next_words = null;
         // 30% chance of trying to find a key in the corpus from the last two words
         //  combined. (frequency weighted)
@@ -115,7 +116,7 @@ var make_title = function (min_length) {
         title = title.concat(word);
         // After 1-2 words have been added, 30% chance of splitting
         //  to new line.  Use stopword if it has been selected.
-        if(!NOTERMREGEX.test(word.join(" ")) && Math.random() < 0.3) {
+        if(!~NOTERM.indexOf(word[word.length-1].toLowerCase()) && Math.random() < 0.3) {
           stopword && title.push(stopword);
           title.push(LINEBREAK);
         }
@@ -127,8 +128,14 @@ var make_title = function (min_length) {
     return title.join(' ');
 };
 
+/*
+Uncomment these lines to just run once and spit out for development/debugging
+console.log(make_title(120));
+process.exit();
+*/
+
 // If deployed to Nodejitsu, it requires an application to respond to HTTP requests
-// If you're running locally or on Openshift you don't need this, or express at all.
+// If you're running on Openshift or Heroku you may still need this to unidle your app
 app.get('/', function(req, res){
     res.send("<h1>Recent retweets</h1>" + ((recent_retweets && recent_retweets.length) ? recent_retweets.join("<br>\n") : "No retweets"));
 });
